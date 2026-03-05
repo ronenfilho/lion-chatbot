@@ -9,4 +9,3 @@ venv/
 dist/
 build/
 docs/*.html
-docs/*.txt
