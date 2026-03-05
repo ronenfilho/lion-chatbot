@@ -1,70 +1,69 @@
 ---
-title: Lion Chatbot
+title: LION
 emoji: 🦁
 colorFrom: yellow
-colorTo: red
+colorTo: orange
 sdk: gradio
 sdk_version: 6.8.0
 app_file: app.py
 pinned: false
 ---
 
-# 🤖 Demo — Chatbot Institucional com NotebookLM
+# 🦁 LION — Legal Interpretation and Official Norms
 
-Chatbot de suporte técnico alimentado por documentações reais, usando o
-[NotebookLM](https://notebooklm.google.com) como motor de IA via
-[notebooklm-py](https://github.com/teng-lin/notebooklm-py).
+Plataforma de Q&A institucional baseada em documentos. Consulte normas, legislações e documentos internos de forma conversacional, com respostas fundamentadas exclusivamente no conteúdo indexado.
+
+> Pode ser aplicado em contextos jurídicos, regulatórios, de compliance ou como base de conhecimento de qualquer instituição.
 
 ## Estrutura
 
 ```
-demo/
-├── app.py                  # Interface gráfica web (Gradio) ← recomendado
-├── chatbot.py              # Chatbot interativo via terminal
-├── setup.py                # Configura o notebook e importa as fontes
-├── .env                    # Gerado pelo setup.py (notebook_id)
-└── docs/                   # Documentações técnicas (fontes do chatbot)
-    ├── api-reference.md
-    ├── integration-guide.md
-    └── faq-troubleshooting.md
+lion-chatbot/
+├── app.py          # Interface web (Gradio) ← recomendado
+├── chatbot.py      # Interface interativa via terminal
+├── setup.py        # Configura a base e indexa os documentos
+├── .env            # Gerado pelo setup.py (notebook_id)
+└── docs/           # Documentos indexados (fontes do LION)
+    ├── *.md
+    ├── *.pdf
+    └── *.html      # Convertidos automaticamente para .txt
 ```
 
 ## Pré-requisitos
 
-Autenticação já configurada (a partir da raiz do projeto):
-
 ```bash
+python -m venv .venv
 source .venv/bin/activate
-notebooklm auth check
+pip install -r requirements.txt
 ```
 
 ## Passo a Passo
 
-### 1. Configurar o notebook
+### 1. Indexar os documentos
 
 ```bash
-cd demo/
 python setup.py
 ```
 
 Este script:
-- Cria um notebook chamado **"Chatbot Institucional — AcmeCorp"** no NotebookLM
-- Faz upload de todos os arquivos `.md` da pasta `docs/` como fontes
+- Converte arquivos `.html` de `docs/` para `.txt` (UTF-8)
+- Cria uma base de conhecimento chamada **"LION"**
+- Faz upload de todos os arquivos `.md`, `.pdf` e `.txt` como fontes
 - Salva o `CHATBOT_NOTEBOOK_ID` no arquivo `.env`
 
-Para reaproveitar um notebook existente:
+Para reaproveitar uma base existente:
 
 ```bash
-python setup.py --notebook-id <id_do_notebook>
+python setup.py --notebook-id <id_existente>
 ```
 
-Para listar seus notebooks:
+Para listar bases disponíveis:
 
 ```bash
 python setup.py --list
 ```
 
-### 2. Iniciar a interface gráfica (recomendado)
+### 2. Iniciar a interface web (recomendado)
 
 ```bash
 python app.py
@@ -79,7 +78,7 @@ python app.py --share              # Gera link público temporário
 python app.py --notebook-id <id>   # Sobrescreve o .env
 ```
 
-### 2b. Iniciar o chatbot via terminal (alternativo)
+### 2b. Interface via terminal (alternativo)
 
 ```bash
 python chatbot.py
@@ -87,31 +86,33 @@ python chatbot.py
 
 ---
 
-## Exemplo de Sessão
+## Exemplo de Sessão (Terminal)
 
 ```
 ════════════════════════════════════════════════════════════
-  🤖  Chatbot Institucional — AcmeCorp Platform
+  🦁  LION — Legal Interpretation and Official Norms
 ════════════════════════════════════════════════════════════
-  Motor: Google NotebookLM  |  Digite /ajuda para comandos
+  Consulta inteligente a normas e documentos institucionais
+  Digite /ajuda para ver os comandos disponíveis
 ────────────────────────────────────────────────────────────
 
-✔ Conectado ao notebook: Chatbot Institucional — AcmeCorp
-✔ Fontes carregadas: 3 documento(s)
+✔ Base de conhecimento: LION
+✔ Documentos indexados: 6 documento(s)
 
-Você: Como faço para autenticar na API?
+Você: Quais são as penalidades previstas na L15270?
 
-🤖 Chatbot:
-  Para autenticar na API da AcmeCorp, você deve fazer um POST para
-  /auth/token com seu client_id e client_secret. A API retornará um
-  token JWT válido por 1 hora...
+🦁 LION:
+  De acordo com o artigo X da Lei nº 15.270, as penalidades
+  incluem multa de 50% a 150% sobre o valor da infração,
+  podendo ser cumulada com suspensão de atividades...
 
-Você: E se o token expirar antes do tempo?
+Você: /fontes
 
-🤖 Chatbot:
-  Tokens podem ser invalidados antes do prazo por rotação de chaves,
-  uso suspeito ou revogação manual. Recomenda-se renovar quando restar
-  menos de 5 minutos para expirar...
+── Documentos indexados ──
+  • D9580 (doc)
+  • L15270 (doc)
+  • L7713compilada (doc)
+  ...
 
 Você: /sair
 Até logo! 👋
@@ -121,31 +122,28 @@ Até logo! 👋
 
 ## Comandos do Chat
 
-| Comando         | Ação                                        |
-|-----------------|---------------------------------------------|
-| `/ajuda`        | Exibe os comandos disponíveis               |
-| `/novo`         | Inicia nova conversa (limpa o contexto)     |
-| `/historico`    | Exibe o histórico da sessão atual           |
-| `/fontes`       | Lista os documentos carregados no notebook  |
-| `/sair`         | Encerra o chatbot                           |
+| Comando      | Ação                                       |
+|--------------|--------------------------------------------|
+| `/ajuda`     | Exibe os comandos disponíveis              |
+| `/novo`      | Inicia nova conversa (limpa o contexto)    |
+| `/historico` | Exibe o histórico da sessão atual          |
+| `/fontes`    | Lista os documentos indexados              |
+| `/sair`      | Encerra o LION                             |
 
 ---
 
-## Personalizando
+## Adicionando Documentos
 
-### Adicionar suas próprias documentações
-
-Coloque arquivos `.md` ou `.pdf` na pasta `docs/` e rode o setup novamente:
+Coloque arquivos `.md`, `.pdf` ou `.html` na pasta `docs/` e reindexe:
 
 ```bash
-cp /caminho/para/sua-doc.pdf docs/
+cp /caminho/para/documento.pdf docs/
 python setup.py --notebook-id <id_existente>
 ```
 
-### Trocar o nome do produto
+## Casos de Uso
 
-Edite a constante `NOTEBOOK_TITLE` no topo de `setup.py`:
-
-```python
-NOTEBOOK_TITLE = "Chatbot Institucional — SuaEmpresa"
-```
+- 📜 **Legislação e normas tributárias** — consulta a leis e instruções normativas
+- 🏢 **Base de conhecimento interna** — manuais, políticas e procedimentos
+- 📋 **Compliance e regulatório** — interpretação de normas e regulamentos
+- 🎓 **Q&A educacional** — dúvidas sobre conteúdos e documentos acadêmicos

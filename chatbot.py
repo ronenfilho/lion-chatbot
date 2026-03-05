@@ -1,4 +1,4 @@
-"""chatbot.py — Lion Chatbot interativo via terminal, alimentado pelo NotebookLM.
+"""chatbot.py — LION: interface interativa via terminal para consulta de documentos.
 
 Lê o CHATBOT_NOTEBOOK_ID do arquivo .env (gerado pelo setup.py) e inicia
 um loop de conversa no terminal. O histórico de contexto é mantido via
@@ -10,10 +10,10 @@ Uso:
     python chatbot.py --reset              # Nova conversa (limpa histórico)
 
 Comandos especiais durante o chat:
-    /sair ou /exit   — Encerra o chatbot
+    /sair ou /exit   — Encerra o LION
     /novo            — Inicia nova conversa (limpa contexto)
     /historico       — Exibe o histórico da sessão atual
-    /fontes          — Lista as fontes do notebook
+    /fontes          — Lista os documentos indexados
     /ajuda           — Exibe a ajuda
 """
 
@@ -37,6 +37,13 @@ DIM = "\033[2m"
 BLUE = "\033[94m"
 
 
+# Instrução de contexto injetada em cada pergunta
+_PROMPT_INSTRUCTIONS = (
+    "Responda de forma direta e objetiva. "
+    "Não inclua referências numéricas como [1], [2] ou similares na resposta."
+)
+
+
 def _load_env() -> dict[str, str]:
     """Carrega variáveis do arquivo .env da demo."""
     env: dict[str, str] = {}
@@ -51,19 +58,20 @@ def _load_env() -> dict[str, str]:
 
 def _print_header() -> None:
     print(f"\n{BOLD}{CYAN}{'═' * 60}{RESET}")
-    print(f"{BOLD}{CYAN}  🦁  Lion Chatbot{RESET}")
+    print(f"{BOLD}{CYAN}  🦁  LION — Legal Interpretation and Official Norms{RESET}")
     print(f"{BOLD}{CYAN}{'═' * 60}{RESET}")
-    print(f"{DIM}  Motor: Google NotebookLM  |  Digite /ajuda para comandos{RESET}")
+    print(f"{DIM}  Consulta inteligente a normas e documentos institucionais{RESET}")
+    print(f"{DIM}  Digite /ajuda para ver os comandos disponíveis{RESET}")
     print(f"{BOLD}{CYAN}{'─' * 60}{RESET}\n")
 
 
 def _print_help() -> None:
     print(f"\n{BOLD}Comandos disponíveis:{RESET}")
     cmds = [
-        ("/sair, /exit", "Encerra o chatbot"),
+        ("/sair, /exit", "Encerra o LION"),
         ("/novo",        "Inicia nova conversa (limpa o contexto)"),
         ("/historico",   "Exibe o histórico da sessão"),
-        ("/fontes",      "Lista as fontes do notebook"),
+        ("/fontes",      "Lista os documentos indexados"),
         ("/ajuda",       "Exibe esta ajuda"),
     ]
     for cmd, desc in cmds:
@@ -92,20 +100,20 @@ async def run_chatbot(notebook_id: str, reset: bool = False) -> None:
         try:
             nb = await client.notebooks.get(notebook_id)
         except Exception as e:
-            print(f"{RED}[ERRO] Notebook não encontrado: {e}{RESET}")
+            print(f"{RED}[ERRO] Base de conhecimento não encontrada: {e}{RESET}")
             print(f"Execute primeiro: {YELLOW}python setup.py{RESET}\n")
             return
 
-        print(f"{GREEN}✔ Conectado ao notebook:{RESET} {BOLD}{nb.title}{RESET}")
+        print(f"{GREEN}\u2714 Base de conhecimento:{RESET} {BOLD}{nb.title}{RESET}")
 
         sources = await client.sources.list(nb.id)
-        print(f"{GREEN}✔ Fontes carregadas:{RESET} {len(sources)} documento(s)\n")
+        print(f"{GREEN}\u2714 Documentos indexados:{RESET} {len(sources)} documento(s)\n")
 
         if not sources:
-            print(f"{YELLOW}⚠ Nenhuma fonte encontrada. Execute python setup.py primeiro.{RESET}\n")
+            print(f"{YELLOW}\u26a0 Nenhum documento encontrado. Execute python setup.py primeiro.{RESET}\n")
             return
 
-        print(f"{DIM}Faça sua pergunta sobre a documentação. Digite /ajuda para ver os comandos.{RESET}\n")
+        print(f"{DIM}Faça sua pergunta sobre normas ou documentos. Digite /ajuda para ver os comandos.{RESET}\n")
 
         # ── Loop de conversa ──────────────────────────────────────────────────
         while True:
@@ -157,16 +165,17 @@ async def run_chatbot(notebook_id: str, reset: bool = False) -> None:
                 print()
                 continue
 
-            # ── Pergunta ao NotebookLM ────────────────────────────────────────
+            # ── Consulta à base de documentos ────────────────────────────────
             now = datetime.now().strftime("%H:%M:%S")
             history.append({"role": "user", "text": user_input, "time": now})
 
-            print(f"{DIM}Consultando documentação...{RESET}", end="\r", flush=True)
+            print(f"{DIM}Consultando base de documentos...{RESET}", end="\r", flush=True)
 
             try:
+                full_question = f"{_PROMPT_INSTRUCTIONS}\n\n{user_input}"
                 result = await client.chat.ask(
                     nb.id,
-                    user_input,
+                    full_question,
                     conversation_id=conversation_id,
                 )
                 conversation_id = result.conversation_id
@@ -177,7 +186,7 @@ async def run_chatbot(notebook_id: str, reset: bool = False) -> None:
                 answer = result.answer
                 history.append({"role": "bot", "text": answer, "time": datetime.now().strftime("%H:%M:%S")})
 
-                print(f"\n{BOLD}{GREEN}🦁 Lion:{RESET}")
+                print(f"\n{BOLD}{GREEN}🦁 LION:{RESET}")
                 print(_format_answer(answer))
 
                 # Exibe fontes referenciadas (se disponíveis)
@@ -198,12 +207,12 @@ async def run_chatbot(notebook_id: str, reset: bool = False) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Chatbot institucional interativo — motor NotebookLM."
+        description="LION — Legal Interpretation and Official Norms. Consulta interativa via terminal."
     )
     parser.add_argument(
         "--notebook-id",
         metavar="ID",
-        help="ID do notebook (sobrescreve o .env).",
+        help="ID da base de conhecimento (sobrescreve o .env).",
     )
     parser.add_argument(
         "--reset",
@@ -219,7 +228,7 @@ def main() -> None:
         notebook_id = env.get("CHATBOT_NOTEBOOK_ID") or os.environ.get("CHATBOT_NOTEBOOK_ID")
 
     if not notebook_id:
-        print(f"{RED}[ERRO] notebook_id não configurado.{RESET}")
+        print(f"{RED}[ERRO] Base de conhecimento não configurada.{RESET}")
         print(f"Execute primeiro: {YELLOW}python setup.py{RESET}")
         sys.exit(1)
 

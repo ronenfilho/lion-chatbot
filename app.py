@@ -1,7 +1,7 @@
-"""app.py — Interface gráfica do Lion Chatbot (Gradio).
+"""app.py — Interface web do LION (Legal Interpretation and Official Norms).
 
 Lê configurações de variáveis de ambiente ou do arquivo .env local:
-  - CHATBOT_NOTEBOOK_ID  : ID do notebook NotebookLM
+  - CHATBOT_NOTEBOOK_ID  : ID da base de conhecimento
   - NOTEBOOKLM_AUTH_JSON : JSON do storage_state (para Hugging Face Spaces)
 
 Uso local:
@@ -24,14 +24,15 @@ import gradio as gr
 
 # ── Configuração ───────────────────────────────────────────────────────────────
 ENV_FILE = Path(__file__).parent / ".env"
-NOTEBOOK_TITLE = "Lion Chatbot"
-APP_TITLE = "🦁 Lion Chatbot"
-APP_DESCRIPTION = "Assistente técnico inteligente alimentado por documentações reais via Google NotebookLM."
+NOTEBOOK_TITLE = "LION"
+APP_TITLE = "🦁 LION"
+APP_DESCRIPTION = "Legal Interpretation and Official Norms"
 
 # Estado global da sessão (thread-safe via asyncio + Gradio state)
 _client = None
 _notebook_id: str | None = None
 _sources: list = []
+_suggestions: list[str] = []
 _loop: asyncio.AbstractEventLoop | None = None
 
 
@@ -69,12 +70,10 @@ def _run_async(coro):
 # ── Inicialização do cliente ───────────────────────────────────────────────────
 
 async def _init_client(notebook_id: str):
-    """Inicializa o cliente NotebookLM e carrega metadados do notebook."""
+    """Inicializa o cliente e carrega metadados do notebook."""
     global _client, _notebook_id, _sources
     from notebooklm import NotebookLMClient
 
-    # NotebookLMClient.from_storage() já lê NOTEBOOKLM_AUTH_JSON do ambiente
-    # automaticamente (suporte nativo a HF Spaces secrets)
     _client = await NotebookLMClient.from_storage()
     await _client.__aenter__()
     _notebook_id = notebook_id
@@ -85,13 +84,40 @@ async def _init_client(notebook_id: str):
     return nb, _sources
 
 
+async def _generate_suggestions() -> list[str]:
+    """Consulta a base para gerar sugestões de perguntas contextuais."""
+    prompt = (
+        "Com base nos documentos disponíveis nesta base de conhecimento, "
+        "gere exatamente 6 sugestões de perguntas que um usuário poderia fazer. "
+        "As perguntas devem ser objetivas, relevantes e variadas. "
+        "Retorne apenas as perguntas, uma por linha, sem numeração, "
+        "sem marcadores e sem nenhum texto adicional."
+    )
+    try:
+        result = await _client.chat.ask(_notebook_id, prompt)
+        lines = [l.strip() for l in result.answer.strip().splitlines() if l.strip()]
+        # filtra linhas que parecem perguntas (terminam em ? ou têm conteúdo)
+        questions = [l.lstrip("-•*0123456789. ") for l in lines if len(l) > 10][:6]
+        return questions if questions else []
+    except Exception:
+        return []
+
+
+# Instrução de contexto injetada em cada pergunta
+_PROMPT_INSTRUCTIONS = (
+    "Responda de forma direta e objetiva. "
+    "Não inclua referências numéricas como [1], [2] ou similares na resposta."
+)
+
+
 # ── Lógica do chat ─────────────────────────────────────────────────────────────
 
 async def _ask(question: str, conversation_id: str | None):
-    """Envia pergunta ao NotebookLM e retorna (resposta, novo conversation_id)."""
+    """Envia pergunta à base de conhecimento e retorna (resposta, novo conversation_id)."""
+    full_question = f"{_PROMPT_INSTRUCTIONS}\n\n{question}"
     result = await _client.chat.ask(
         _notebook_id,
-        question,
+        full_question,
         conversation_id=conversation_id,
     )
     return result.answer, result.conversation_id
@@ -113,7 +139,7 @@ def chat_fn(message: str, history: list, conversation_id: str):
         return history, new_conv_id or conversation_id
     except Exception as e:
         history.append({"role": "user", "content": message})
-        history.append({"role": "assistant", "content": f"❌ Erro ao consultar o NotebookLM: {e}"})
+        history.append({"role": "assistant", "content": f"❌ Erro ao processar sua consulta: {e}"})
         return history, conversation_id
 
 
@@ -127,16 +153,27 @@ def reset_conversation():
 def build_sources_markdown(sources: list) -> str:
     if not sources:
         return "_Nenhuma fonte carregada._"
+    icon_map = {"pdf": "📕", "md": "📝", "txt": "📄", "html": "🌐"}
     lines = []
     for src in sources:
-        kind = getattr(src, "kind", "doc")
-        lines.append(f"- 📄 **{src.title}** `{kind}`")
+        title = src.title or "Sem título"
+        ext = title.rsplit(".", 1)[-1].lower() if "." in title else ""
+        icon = icon_map.get(ext, "📄")
+        lines.append(f"- {icon} {title}")
     return "\n".join(lines)
 
 
-def build_app(notebook_title: str, sources: list) -> gr.Blocks:
+def build_app(notebook_title: str, sources: list, suggestions: list[str]) -> gr.Blocks:
     sources_md = build_sources_markdown(sources)
     source_count = len(sources)
+    suggestions_md = "\n".join(f"- {q}" for q in suggestions) if suggestions else (
+        "- Quais são as principais obrigações previstas?\n"
+        "- Qual o prazo para cumprimento desta norma?\n"
+        "- Quem são os sujeitos passivos desta legislação?\n"
+        "- Quais as penalidades previstas em caso de descumprimento?\n"
+        "- Existem exceções ou isenções previstas?\n"
+        "- Qual o órgão responsável pela fiscalização?"
+    )
 
     with gr.Blocks(title=APP_TITLE) as app:
 
@@ -151,8 +188,8 @@ def build_app(notebook_title: str, sources: list) -> gr.Blocks:
             with gr.Column(scale=2):
                 gr.Markdown(
                     f"**Base de conhecimento:** {notebook_title}  \n"
-                    f"**Fontes:** {source_count} documento(s)  \n"
-                    f"**Motor:** Google NotebookLM"
+                    f"**Documentos indexados:** {source_count}  \n"
+                    f"**Versão:** 0.0.1"
                 )
 
         gr.HTML("<hr style='margin: 8px 0; border-color: #e2e8f0;'>")
@@ -167,16 +204,13 @@ def build_app(notebook_title: str, sources: list) -> gr.Blocks:
                     label="Conversa",
                     height=520,
                     layout="bubble",
-                    avatar_images=(
-                        None,
-                        "https://www.gstatic.com/notebooklm/notebooklm_favicon_v2.ico",
-                    ),
+                    avatar_images=(None, None),
                     buttons=["copy"],
                 )
 
                 with gr.Row():
                     msg_input = gr.Textbox(
-                        placeholder="Digite sua pergunta sobre a documentação...",
+                        placeholder="Digite sua pergunta sobre normas, legislação ou documentos institucionais...",
                         label="",
                         scale=8,
                         lines=1,
@@ -209,24 +243,18 @@ def build_app(notebook_title: str, sources: list) -> gr.Blocks:
                     gr.Markdown(sources_md)
 
                 with gr.Accordion("💡 Sugestões de perguntas", open=True):
-                    gr.Markdown(
-                        "- Como faço para autenticar na API?\n"
-                        "- Quais são os planos de rate limiting?\n"
-                        "- O que fazer quando recebo erro 403?\n"
-                        "- Como configurar webhooks?\n"
-                        "- O SDK suporta chamadas assíncronas?\n"
-                        "- Como importar dados em lote?\n"
-                        "- Qual a diferença entre os ambientes?"
-                    )
+                    gr.Markdown(suggestions_md)
 
-                with gr.Accordion("ℹ️ Sobre", open=False):
+                with gr.Accordion("ℹ️ Sobre o LION", open=False):
                     gr.Markdown(
-                        "**Lion Chatbot** é um assistente técnico que utiliza o "
-                        "**Google NotebookLM** como motor de IA para responder "
-                        "perguntas com base nas documentações carregadas.\n\n"
-                        "As respostas são geradas exclusivamente a partir do "
-                        "conteúdo dos documentos indexados, garantindo precisão "
-                        "e rastreabilidade das informações."
+                        "**LION** _(Legal Interpretation and Official Norms)_ é uma "
+                        "plataforma de Q&A institucional baseada em documentos. \n\n"
+                        "Permite consultar normas, legislações e documentos internos "
+                        "de forma conversacional, com respostas fundamentadas "
+                        "exclusivamente no conteúdo indexado — garantindo precisão "
+                        "e rastreabilidade das informações.\n\n"
+                        "Pode ser aplicado em contextos jurídicos, regulatórios, "
+                        "de compliance ou como base de conhecimento institucional."
                     )
 
         # ── Eventos ───────────────────────────────────────────────────────────
@@ -267,7 +295,7 @@ def main():
 
     # Suporte a argumentos CLI para uso local (ignorados no HF Spaces)
     parser = argparse.ArgumentParser(
-        description="Interface gráfica do Lion Chatbot — motor NotebookLM."
+        description="LION — Legal Interpretation and Official Norms. Interface web de consulta a documentos."
     )
     parser.add_argument("--notebook-id", metavar="ID", help="ID do notebook (sobrescreve .env e variável de ambiente).")
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", 7860)), help="Porta HTTP (padrão: 7860).")
@@ -288,33 +316,38 @@ def main():
     t.start()
 
     # Inicializa cliente
-    print("Conectando ao NotebookLM...")
+    print("Conectando à base de conhecimento...")
     try:
         nb, sources = _run_async(_init_client(notebook_id))
     except Exception as e:
         print(f"❌ Falha ao conectar: {e}")
-        print("Verifique a autenticação com: notebooklm auth check")
+        print("Verifique a autenticação e tente novamente.")
         sys.exit(1)
 
     print(f"✔ Notebook: {nb.title}")
     print(f"✔ Fontes: {len(sources)} documento(s)")
+    print("⏳ Gerando sugestões de perguntas...")
+    suggestions = _run_async(_generate_suggestions())
+    print(f"✔ {len(suggestions)} sugestões geradas")
     print(f"✔ Iniciando interface em http://localhost:{args.port}\n")
 
-    app = build_app(nb.title, sources)
+    app = build_app(nb.title, sources, suggestions)
     app.launch(
         server_name="0.0.0.0",
         server_port=args.port,
         share=args.share,
         favicon_path=None,
         theme=gr.themes.Soft(
-            primary_hue="blue",
-            secondary_hue="slate",
+            primary_hue="amber",
+            secondary_hue="orange",
             neutral_hue="slate",
         ),
         css="""
-        #send-btn { min-width: 100px; }
-        #reset-btn { min-width: 100px; }
+        #send-btn { min-width: 110px; }
+        #reset-btn { min-width: 110px; }
         footer { display: none !important; }
+        .gradio-container { max-width: 1200px !important; margin: auto; }
+        h1 { letter-spacing: 0.05em; }
         """,
     )
 
