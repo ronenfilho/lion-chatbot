@@ -72,9 +72,23 @@ def _run_async(coro):
 async def _init_client(notebook_id: str):
     """Inicializa o cliente e carrega metadados do notebook."""
     global _client, _notebook_id, _sources
+    import json
     from notebooklm import NotebookLMClient
 
-    _client = await NotebookLMClient.from_storage()
+    # Tenta obter autenticação de variável de ambiente (HF Spaces) ou arquivo local
+    auth_json_str = os.environ.get("NOTEBOOKLM_AUTH_JSON")
+    
+    if auth_json_str:
+        # Modo HF Spaces: usa JSON da variável de ambiente
+        try:
+            storage_dict = json.loads(auth_json_str)
+            _client = await NotebookLMClient.from_storage_dict(storage_dict)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"NOTEBOOKLM_AUTH_JSON inválido: {e}")
+    else:
+        # Modo local: usa arquivo storage_state.json
+        _client = await NotebookLMClient.from_storage()
+    
     await _client.__aenter__()
     _notebook_id = notebook_id
 

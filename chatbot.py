@@ -87,6 +87,7 @@ def _format_answer(answer: str) -> str:
 
 async def run_chatbot(notebook_id: str, reset: bool = False) -> None:
     """Loop principal do chatbot."""
+    import json
     from notebooklm import NotebookLMClient, RPCError
 
     history: list[dict] = []   # {"role": "user"|"bot", "text": str, "time": str}
@@ -94,7 +95,22 @@ async def run_chatbot(notebook_id: str, reset: bool = False) -> None:
 
     _print_header()
 
-    async with await NotebookLMClient.from_storage() as client:
+    # Tenta obter autenticação de variável de ambiente (HF Spaces) ou arquivo local
+    auth_json_str = os.environ.get("NOTEBOOKLM_AUTH_JSON")
+    
+    if auth_json_str:
+        # Modo HF Spaces: usa JSON da variável de ambiente
+        try:
+            storage_dict = json.loads(auth_json_str)
+            client = await NotebookLMClient.from_storage_dict(storage_dict)
+        except json.JSONDecodeError as e:
+            print(f"{RED}[ERRO] NOTEBOOKLM_AUTH_JSON inválido: {e}{RESET}\n")
+            return
+    else:
+        # Modo local: usa arquivo storage_state.json
+        client = await NotebookLMClient.from_storage()
+
+    async with client:
 
         # ── Valida notebook ───────────────────────────────────────────────────
         try:
