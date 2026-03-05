@@ -73,7 +73,7 @@ def convert_html_to_txt() -> None:
     print()
 
 
-async def setup_notebook(notebook_id: str | None = None, notebook_title: str | None = None) -> str:
+async def setup_notebook(notebook_id: str | None = None, notebook_title: str | None = None, process_docs: bool = True) -> str:
     """Cria (ou reaproveita) a base de conhecimento e importa todos os docs como fontes.
 
     Returns:
@@ -82,6 +82,16 @@ async def setup_notebook(notebook_id: str | None = None, notebook_title: str | N
     from notebooklm import NotebookLMClient
 
     title = notebook_title or NOTEBOOK_TITLE
+
+    if not process_docs:
+        async with await NotebookLMClient.from_storage() as client:
+            nb = await client.notebooks.get(notebook_id)
+            print(f"✔ Usando base existente: {nb.title} ({nb.id})")
+            _save_env(nb.id)
+            print(f"\n✔ Configuração salva em {ENV_FILE}")
+            print(f"  CHATBOT_NOTEBOOK_ID={nb.id}")
+            print("\nAgora execute:\n  python app.py\n")
+            return nb.id
 
     convert_html_to_txt()
     doc_files = sorted(DOCS_DIR.glob("*.md")) + sorted(DOCS_DIR.glob("*.pdf")) + sorted(DOCS_DIR.glob("*.txt"))
@@ -172,14 +182,14 @@ def _list_hf_spaces(token: str, username: str) -> list[dict]:
         return []
 
 
-def _create_hf_space(token: str, username: str, space_name: str) -> str:
+def _create_hf_space(token: str, username: str, space_name: str, private: bool = False) -> str:
     """Cria um novo Space no HuggingFace e retorna o repo_id."""
     import urllib.request
     payload = json.dumps({
         "type": "space",
         "name": space_name,
         "sdk": "gradio",
-        "private": False,
+        "private": private,
     }).encode()
     req = urllib.request.Request(
         "https://huggingface.co/api/repos/create",
@@ -214,6 +224,52 @@ def _restart_space(token: str, space: str) -> None:
         f"https://huggingface.co/api/spaces/{space}/restart",
         "-H", f"Authorization: Bearer {token}",
     ], capture_output=True)
+
+
+def _update_space_readme_via_api(token: str, space: str) -> None:
+    """Atualiza o campo title do frontmatter do README.md diretamente no Space via API."""
+    import re
+    import urllib.request
+
+    short_name = space.split("/")[-1]
+    new_title = f"🦁 LION - {short_name}"
+
+    # Busca o README.md atual do Space
+    url_get = f"https://huggingface.co/spaces/{space}/raw/main/README.md"
+    req_get = urllib.request.Request(url_get, headers={"Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(req_get, timeout=10) as resp:
+            content = resp.read().decode("utf-8")
+    except Exception as e:
+        print(f"⚠ Não foi possível ler o README.md do Space: {e}")
+        return
+
+    updated = re.sub(r"(?m)^title:.*$", f"title: {new_title}", content)
+    # Garante colorFrom e colorTo
+    if re.search(r"(?m)^colorFrom:", updated):
+        updated = re.sub(r"(?m)^colorFrom:.*$", "colorFrom: yellow", updated)
+    else:
+        updated = re.sub(r"(?m)^(title:.*\n)", r"\1colorFrom: yellow\n", updated)
+    if re.search(r"(?m)^colorTo:", updated):
+        updated = re.sub(r"(?m)^colorTo:.*$", "colorTo: yellow", updated)
+    else:
+        updated = re.sub(r"(?m)^(colorFrom:.*\n)", r"\1colorTo: yellow\n", updated)
+    if updated == content:
+        return  # nada a fazer
+
+    try:
+        from huggingface_hub import HfApi
+        api = HfApi(token=token)
+        api.upload_file(
+            path_or_fileobj=updated.encode("utf-8"),
+            path_in_repo="README.md",
+            repo_id=space,
+            repo_type="space",
+            commit_message=f"chore: update Space title to '{new_title}'",
+        )
+        print(f"✔ Título do Space atualizado: {new_title}")
+    except Exception as e:
+        print(f"⚠ Não foi possível atualizar o título do Space: {e}")
 
 
 def _git_push_space(remote_url: str) -> None:
@@ -269,10 +325,25 @@ def deploy_flow(notebook_id: str) -> None:
         if not space_name:
             print("Nome inválido. Deploy cancelado.")
             return
-        print(f"Criando Space '{space_name}'...")
-        _create_hf_space(token, username, space_name)
+        # Sanitiza: substitui caracteres inválidos por hífen
+        import re as _re
+        space_name = _re.sub(r"[^A-Za-z0-9._-]+", "-", space_name).strip("-")
+
+        print("\nVisibilidade do Space:")
+        print("  1. 🌐 Público")
+        print("  2. 🔒 Privado")
+        while True:
+            vis = input("Escolha [1/2]: ").strip()
+            if vis in ("1", "2"):
+                break
+            print("Opção inválida, tente novamente.")
+        private = vis == "2"
+
+        print(f"\nCriando Space '{space_name}' ({'privado' if private else 'público'})...")
+        _create_hf_space(token, username, space_name, private=private)
         space_repo_id = f"{username}/{space_name}"
-        print(f"✔ Space criado: https://huggingface.co/spaces/{space_repo_id}")
+        vis_label = "🔒 privado" if private else "🌐 público"
+        print(f"✔ Space criado ({vis_label}): https://huggingface.co/spaces/{space_repo_id}")
     else:
         space_repo_id = spaces[idx - 1].get("id", spaces[idx - 1].get("name"))
         print(f"✔ Space selecionado: {space_repo_id}")
@@ -287,6 +358,9 @@ def deploy_flow(notebook_id: str) -> None:
     except subprocess.CalledProcessError as e:
         print(f"❌ Erro no push: {e}")
         return
+
+    # ── Atualiza título no README.md do Space ────────────────────────
+    _update_space_readme_via_api(token, space_repo_id)
 
     # ── Secrets ─────────────────────────────────────────────────
     print("🔑 Configurando secrets...")
@@ -328,6 +402,48 @@ def _save_env(notebook_id: str) -> None:
     ENV_FILE.write_text("\n".join(lines) + "\n")
 
 
+async def _prompt_notebook_selection(preferred_name: str | None = None) -> tuple[str | None, str | None, bool]:
+    """Pergunta ao usuário se quer usar uma base existente ou criar uma nova.
+
+    Returns:
+        (notebook_id, notebook_title, process_docs):
+            notebook_id=None indica criação de nova base.
+            process_docs indica se deve importar os documentos do docs/.
+    """
+    from notebooklm import NotebookLMClient
+
+    async with await NotebookLMClient.from_storage() as client:
+        notebooks = await client.notebooks.list()
+
+    print(f"\n{'─' * 60}")
+    print("Bases de conhecimento disponíveis:\n")
+    print(f"  {'0.':<4} Criar nova base")
+    for i, nb in enumerate(notebooks, start=1):
+        print(f"  {i}. {nb.title}  [{nb.id[:8]}…]  ({nb.sources_count} fonte(s))")
+    print()
+
+    while True:
+        escolha = input("Escolha o número da base (ou 0 para criar nova): ").strip()
+        if escolha.isdigit() and int(escolha) <= len(notebooks):
+            break
+        print("Opção inválida, tente novamente.")
+
+    idx = int(escolha)
+    if idx == 0:
+        if preferred_name:
+            notebook_title = preferred_name.strip()
+        else:
+            resposta = input(f"Nome da nova base [{NOTEBOOK_TITLE}]: ").strip()
+            notebook_title = resposta if resposta else NOTEBOOK_TITLE
+        return None, notebook_title, True
+    else:
+        selected = notebooks[idx - 1]
+        print(f"✔ Base selecionada: {selected.title} ({selected.id})")
+        resp = input("Deseja importar os documentos da pasta docs/? [S/n] ").strip().lower()
+        process_docs = resp not in ("n", "nao", "não", "no")
+        return selected.id, None, process_docs
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="LION — Configura a base de conhecimento e indexa os documentos."
@@ -353,19 +469,17 @@ def main() -> None:
         asyncio.run(list_notebooks())
         return
 
-    # Determina o nome da base (somente quando criar uma nova)
-    if not args.notebook_id:
-        if args.name:
-            notebook_title = args.name.strip()
-        else:
-            resposta = input(
-                f"Nome da base de conhecimento [{NOTEBOOK_TITLE}]: "
-            ).strip()
-            notebook_title = resposta if resposta else NOTEBOOK_TITLE
-    else:
-        notebook_title = None  # reaproveita o nome já existente
+    # Determina o notebook_id e o nome da base
+    notebook_id_resolved = args.notebook_id
+    notebook_title: str | None = None
+    process_docs = True
 
-    notebook_id = asyncio.run(setup_notebook(notebook_id=args.notebook_id, notebook_title=notebook_title))
+    if not notebook_id_resolved:
+        notebook_id_resolved, notebook_title, process_docs = asyncio.run(
+            _prompt_notebook_selection(preferred_name=args.name)
+        )
+
+    notebook_id = asyncio.run(setup_notebook(notebook_id=notebook_id_resolved, notebook_title=notebook_title, process_docs=process_docs))
     deploy_flow(notebook_id)
 
 
