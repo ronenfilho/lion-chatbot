@@ -1,13 +1,16 @@
-"""app.py — Interface gráfica do Chatbot Institucional (Gradio).
+"""app.py — Interface gráfica do Lion Chatbot (Gradio).
 
-Lê o CHATBOT_NOTEBOOK_ID do arquivo .env (gerado pelo setup.py) e sobe
-uma interface web com histórico de conversa, listagem de fontes e
-painel de status.
+Lê configurações de variáveis de ambiente ou do arquivo .env local:
+  - CHATBOT_NOTEBOOK_ID  : ID do notebook NotebookLM
+  - NOTEBOOKLM_AUTH_JSON : JSON do storage_state (para Hugging Face Spaces)
 
-Uso:
+Uso local:
     python app.py
     python app.py --notebook-id <id>
     python app.py --port 7861 --share   # Gera link público temporário
+
+Hugging Face Spaces:
+    Configure CHATBOT_NOTEBOOK_ID e NOTEBOOKLM_AUTH_JSON como Secrets.
 """
 
 import argparse
@@ -15,7 +18,6 @@ import asyncio
 import os
 import sys
 import threading
-from datetime import datetime
 from pathlib import Path
 
 import gradio as gr
@@ -36,6 +38,7 @@ _loop: asyncio.AbstractEventLoop | None = None
 # ── Utilitários ────────────────────────────────────────────────────────────────
 
 def _load_env() -> dict[str, str]:
+    """Carrega variáveis do arquivo .env local (fallback para uso local)."""
     env: dict[str, str] = {}
     if ENV_FILE.exists():
         for line in ENV_FILE.read_text().splitlines():
@@ -44,6 +47,17 @@ def _load_env() -> dict[str, str]:
                 k, _, v = line.partition("=")
                 env[k.strip()] = v.strip()
     return env
+
+
+def _get_notebook_id() -> str | None:
+    """Obtém o notebook_id de variáveis de ambiente ou .env local."""
+    # 1. Variável de ambiente direta (HF Spaces secrets ou export local)
+    notebook_id = os.environ.get("CHATBOT_NOTEBOOK_ID")
+    if notebook_id:
+        return notebook_id.strip()
+    # 2. Arquivo .env local (gerado pelo setup.py)
+    env = _load_env()
+    return env.get("CHATBOT_NOTEBOOK_ID")
 
 
 def _run_async(coro):
@@ -59,6 +73,8 @@ async def _init_client(notebook_id: str):
     global _client, _notebook_id, _sources
     from notebooklm import NotebookLMClient
 
+    # NotebookLMClient.from_storage() já lê NOTEBOOKLM_AUTH_JSON do ambiente
+    # automaticamente (suporte nativo a HF Spaces secrets)
     _client = await NotebookLMClient.from_storage()
     await _client.__aenter__()
     _notebook_id = notebook_id
@@ -249,23 +265,21 @@ def build_app(notebook_title: str, sources: list) -> gr.Blocks:
 def main():
     global _loop
 
+    # Suporte a argumentos CLI para uso local (ignorados no HF Spaces)
     parser = argparse.ArgumentParser(
-        description="Interface gráfica do chatbot institucional — motor NotebookLM."
+        description="Interface gráfica do Lion Chatbot — motor NotebookLM."
     )
-    parser.add_argument("--notebook-id", metavar="ID", help="ID do notebook (sobrescreve .env).")
-    parser.add_argument("--port", type=int, default=7860, help="Porta HTTP (padrão: 7860).")
+    parser.add_argument("--notebook-id", metavar="ID", help="ID do notebook (sobrescreve .env e variável de ambiente).")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", 7860)), help="Porta HTTP (padrão: 7860).")
     parser.add_argument("--share", action="store_true", help="Gera link público temporário via Gradio.")
     args = parser.parse_args()
 
-    # Determina notebook_id
-    notebook_id = args.notebook_id
-    if not notebook_id:
-        env = _load_env()
-        notebook_id = env.get("CHATBOT_NOTEBOOK_ID") or os.environ.get("CHATBOT_NOTEBOOK_ID")
+    # Determina notebook_id: argumento CLI > variável de ambiente > .env
+    notebook_id = args.notebook_id or _get_notebook_id()
 
     if not notebook_id:
         print("❌ notebook_id não configurado.")
-        print("Execute primeiro: python setup.py")
+        print("Defina a variável de ambiente CHATBOT_NOTEBOOK_ID ou execute: python setup.py")
         sys.exit(1)
 
     # Sobe event loop dedicado em thread separada

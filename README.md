@@ -1,3 +1,14 @@
+---
+title: Lion Chatbot
+emoji: 🦁
+colorFrom: yellow
+colorTo: orange
+sdk: gradio
+sdk_version: 6.8.0
+app_file: app.py
+pinned: false
+---
+
 # 🤖 Demo — Chatbot Institucional com NotebookLM
 
 Chatbot de suporte técnico alimentado por documentações reais, usando o
