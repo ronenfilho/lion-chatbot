@@ -245,6 +245,8 @@ def _update_space_readme_via_api(token: str, space: str) -> None:
         return
 
     updated = re.sub(r"(?m)^title:.*$", f"title: {new_title}", content)
+    # Remove campo emoji (o emoji já está no título)
+    updated = re.sub(r"(?m)^emoji:.*\n?", "", updated)
     # Garante colorFrom e colorTo
     if re.search(r"(?m)^colorFrom:", updated):
         updated = re.sub(r"(?m)^colorFrom:.*$", "colorFrom: yellow", updated)
