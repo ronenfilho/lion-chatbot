@@ -1,0 +1,2 @@
+notebooklm-py>=0.3.3
+gradio>=6.0.0
